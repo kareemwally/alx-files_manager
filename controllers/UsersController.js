@@ -1,62 +1,31 @@
-import { ObjectId } from 'mongodb';
-import sha1 from 'sha1';
+import crypto from 'crypto';
 import Queue from 'bull';
 import dbClient from '../utils/db';
-import userUtils from '../utils/user';
-
-const userQueue = new Queue('userQueue');
+import { checkAuth, findUserById } from '../utils/helpers';
 
 class UsersController {
   static async postNew(request, response) {
+    const userQueue = new Queue('userQueue');
     const { email, password } = request.body;
+    if (!email) return response.status(400).json({ error: 'Missing email' });
+    if (!password) return response.status(400).json({ error: 'Missing password' });
 
-    if (!email) return response.status(400).send({ error: 'Missing email' });
+    const userExistsArray = await dbClient.users.find({ email }).toArray();
+    if (userExistsArray.length > 0) return response.status(400).json({ error: 'Already exist' });
 
-    if (!password) { return response.status(400).send({ error: 'Missing password' }); }
-
-    const emailExists = await dbClient.usersCollection.findOne({ email });
-
-    if (emailExists) { return response.status(400).send({ error: 'Already exist' }); }
-
-    const sha1Password = sha1(password);
-
-    let result;
-    try {
-      result = await dbClient.usersCollection.insertOne({
-        email,
-        password: sha1Password,
-      });
-    } catch (err) {
-      await userQueue.add({});
-      return response.status(500).send({ error: 'Error creating user.' });
-    }
-
-    const user = {
-      id: result.insertedId,
-      email,
-    };
-
-    await userQueue.add({
-      userId: result.insertedId.toString(),
-    });
-
-    return response.status(201).send(user);
+    const hashedPassword = crypto.createHash('SHA1').update(password).digest('hex');
+    const resultObj = await dbClient.users.insertOne({ email, password: hashedPassword });
+    const createdUser = { id: resultObj.ops[0]._id, email: resultObj.ops[0].email };
+    await userQueue.add({ userId: createdUser.id });
+    return response.status(201).json(createdUser);
   }
 
   static async getMe(request, response) {
-    const { userId } = await userUtils.getUserIdAndKey(request);
-
-    const user = await userUtils.getUser({
-      _id: ObjectId(userId),
-    });
-
-    if (!user) return response.status(401).send({ error: 'Unauthorized' });
-
-    const processedUser = { id: user._id, ...user };
-    delete processedUser._id;
-    delete processedUser.password;
-
-    return response.status(200).send(processedUser);
+    const userId = await checkAuth(request);
+    if (!userId) return response.status(401).json({ error: 'Unauthorized' });
+    const user = await findUserById(userId);
+    if (!user) return response.status(401).json({ error: 'Unauthorized' });
+    return response.json({ id: user._id, email: user.email });
   }
 }
 
