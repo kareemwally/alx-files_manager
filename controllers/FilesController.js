@@ -3,10 +3,6 @@ import redisClient from '../utils/redis.js';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import mime from 'mime-types';
-import Bull from 'bull';
-
-const fileQueue = new Bull('fileQueue');
 
 class FilesController {
   static async postUpload(req, res) {
@@ -76,11 +72,6 @@ class FilesController {
     newFile.localPath = localPath;
 
     const result = await filesCollection.insertOne(newFile);
-
-    if (type === 'image') {
-      fileQueue.add({ userId, fileId: result.insertedId });
-    }
-
     return res.status(201).json({
       id: result.insertedId,
       userId,
