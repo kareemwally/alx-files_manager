@@ -1,6 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
-import sha1 from 'sha1';
 import dbClient from '../utils/db.js';
+import crypto from 'crypto';
 
 class UsersController {
   static async postNew(req, res) {
@@ -14,21 +13,20 @@ class UsersController {
       return res.status(400).json({ error: 'Missing password' });
     }
 
-    const userExists = await dbClient.db.collection('users').findOne({ email });
-    if (userExists) {
+    const userCollection = dbClient.db.collection('users');
+    const existingUser = await userCollection.findOne({ email });
+
+    if (existingUser) {
       return res.status(400).json({ error: 'Already exist' });
     }
 
-    const hashedPassword = sha1(password);
-    const newUser = {
-      email,
-      password: hashedPassword,
-    };
+    const hashedPassword = crypto.createHash('sha1').update(password).digest('hex');
+    const newUser = { email, password: hashedPassword };
 
-    const result = await dbClient.db.collection('users').insertOne(newUser);
-    const user = result.ops[0];
+    const result = await userCollection.insertOne(newUser);
+    const userId = result.insertedId;
 
-    return res.status(201).json({ id: user._id, email: user.email });
+    return res.status(201).json({ id: userId, email });
   }
 }
 
